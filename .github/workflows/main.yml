@@ -1,0 +1,52 @@
+on:
+  workflow_dispatch:
+
+jobs:
+  go-lint:
+    name: Lint Go
+    runs-on: ubuntu-22.04
+    env:
+      LINT_RESULTS: ""
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.3.0
+
+      - name: Setup Golang with Cache
+        uses: magnetikonline/action-golang-cache@v4
+        with:
+          go-version: "1.20"
+
+      - name: Lint using golangci-lint
+        id: go-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          skip-pkg-cache: true
+          skip-build-cache: true
+          version: v1.52.2
+          only-new-issues: true
+          args: --timeout=10m --issues-exit-code=1 --sort-results ./...
+
+      - name: Save Go linting results
+        if: ${{ always() }}
+        run: |
+          echo "${{ steps.go-lint.outputs.stdout }}" | grep "::error" | awk -F "::error file=" '{print $2}' | sed 's/ column=/:/; s/::error /: /' > lint_results.txt
+          export LINT_RESULTS=$(cat lint_results.txt)
+          echo "$LINT_RESULTS"
+        continue-on-error: true
+
+      - name: Generate list using Markdown
+        id: go-lint-summary
+        run: |
+          echo "- :heavy_check_mark: Checked out the repository" >> $GITHUB_STEP_SUMMARY
+          echo "- :heavy_check_mark: Set up Go with version 1.20 and cached dependencies" >> $GITHUB_STEP_SUMMARY
+          if [ -z "$LINT_RESULTS" ]; then
+            echo "- :heavy_check_mark: Go lint check passed" >> $GITHUB_STEP_SUMMARY
+            echo "::warning::No linting issues found." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- :x: Go lint check failed" >> $GITHUB_STEP_SUMMARY
+            echo "::error::Linting issues found. Check the details below." >> $GITHUB_STEP_SUMMARY
+            echo "$LINT_RESULTS" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+        continue-on-error: true
+        if: always()
